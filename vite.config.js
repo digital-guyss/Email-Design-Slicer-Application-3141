@@ -10,8 +10,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     }
   },
-   build: {
+  build: {
     outDir: 'dist',
     sourcemap: true
   },
+  optimizeDeps: {
+    include: ['gifuct-js', 'omggif']
+  },
+  server: {
+    fs: {
+      allow: ['..']
+    }
+  }
 });

@@ -4,6 +4,8 @@ import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import SelectionBox from './SelectionBox';
 import ControlPanel from './ControlPanel';
+import SliceManager from './SliceManager';
+import { isGif } from '../utils/gifUtils';
 
 const { FiGrid, FiGridOff } = FiIcons;
 
@@ -25,6 +27,7 @@ const ImageEditor = ({
   const [currentSelection, setCurrentSelection] = useState(null);
   const [dragStart, setDragStart] = useState(null);
   const [isAutoScrolling, setIsAutoScrolling] = useState(false);
+  const [selectedSliceId, setSelectedSliceId] = useState(null);
   
   const imageRef = useRef(null);
   const containerRef = useRef(null);
@@ -33,6 +36,8 @@ const ImageEditor = ({
   const GRID_SIZE = 20;
   const SCROLL_SPEED = 5;
   const SCROLL_THRESHOLD = 50;
+
+  const isGifFile = uploadedFile ? isGif(uploadedFile) : false;
 
   const snapToGrid = useCallback((value) => {
     if (!snapMode) return value;
@@ -92,6 +97,9 @@ const ImageEditor = ({
     setDragStart({ x, y });
     setIsSelecting(true);
     setCurrentSelection({ x, y, width: 0, height: 0 });
+    
+    // Deselect any selected slice
+    setSelectedSliceId(null);
   }, [snapToGrid]);
 
   const handleMouseMove = useCallback((e) => {
@@ -134,10 +142,13 @@ const ImageEditor = ({
         width: currentSelection.width,
         height: currentSelection.height,
         imageWidth: imageDimensions.width,
-        imageHeight: imageDimensions.height
+        imageHeight: imageDimensions.height,
+        outputFormat: 'original',
+        isHidden: false
       };
       
       setSlices(prev => [...prev, newSlice]);
+      setSelectedSliceId(newSlice.id);
     }
     
     setIsSelecting(false);
@@ -153,7 +164,16 @@ const ImageEditor = ({
 
   const deleteSlice = useCallback((id) => {
     setSlices(prev => prev.filter(slice => slice.id !== id));
-  }, [setSlices]);
+    if (selectedSliceId === id) {
+      setSelectedSliceId(null);
+    }
+  }, [setSlices, selectedSliceId]);
+
+  // Handle clicking on a slice to select it
+  const handleSliceClick = useCallback((id, e) => {
+    e.stopPropagation();
+    setSelectedSliceId(prevId => prevId === id ? null : id);
+  }, []);
 
   useEffect(() => {
     const handleGlobalMouseMove = (e) => handleMouseMove(e);
@@ -171,7 +191,7 @@ const ImageEditor = ({
   }, [isSelecting, handleMouseMove, handleMouseUp]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
       {/* Control Panel */}
       <ControlPanel
         snapMode={snapMode}
@@ -183,6 +203,16 @@ const ImageEditor = ({
         slicesCount={slices.length}
       />
 
+      {/* Slice Manager Sidebar */}
+      <SliceManager
+        slices={slices}
+        setSlices={setSlices}
+        imageDimensions={imageDimensions}
+        selectedSliceId={selectedSliceId}
+        setSelectedSliceId={setSelectedSliceId}
+        isGifFile={isGifFile}
+      />
+
       {/* Image Editor */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -192,8 +222,13 @@ const ImageEditor = ({
       >
         <div className="p-6 border-b border-secondary-200">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-secondary-900">
+            <h3 className="text-lg font-semibold text-secondary-900 flex items-center">
               Image Preview & Selection
+              {isGifFile && (
+                <span className="ml-2 text-xs font-normal bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                  GIF
+                </span>
+              )}
             </h3>
             <div className="flex items-center space-x-2">
               <span className="text-sm text-secondary-600">
@@ -251,14 +286,18 @@ const ImageEditor = ({
             
             {/* Selection Boxes */}
             {imageLoaded && slices.map(slice => (
-              <SelectionBox
-                key={slice.id}
-                slice={slice}
-                onUpdate={updateSlice}
-                onDelete={deleteSlice}
-                snapToGrid={snapToGrid}
-                imageDimensions={imageDimensions}
-              />
+              !slice.isHidden && (
+                <SelectionBox
+                  key={slice.id}
+                  slice={slice}
+                  onUpdate={updateSlice}
+                  onDelete={deleteSlice}
+                  onSelect={handleSliceClick}
+                  snapToGrid={snapToGrid}
+                  imageDimensions={imageDimensions}
+                  isSelected={selectedSliceId === slice.id}
+                />
+              )
             ))}
             
             {/* Current Selection */}

@@ -1,11 +1,19 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 
 const { FiX, FiMove } = FiIcons;
 
-const SelectionBox = ({ slice, onUpdate, onDelete, snapToGrid, imageDimensions }) => {
+const SelectionBox = ({ 
+  slice, 
+  onUpdate, 
+  onDelete, 
+  onSelect,
+  snapToGrid, 
+  imageDimensions,
+  isSelected
+}) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [dragStart, setDragStart] = useState(null);
@@ -15,16 +23,23 @@ const SelectionBox = ({ slice, onUpdate, onDelete, snapToGrid, imageDimensions }
     e.preventDefault();
     e.stopPropagation();
     
-    const rect = e.currentTarget.closest('.absolute').getBoundingClientRect();
-    const parent = e.currentTarget.closest('.absolute').parentElement.getBoundingClientRect();
+    // Select this slice when interacting with it
+    if (!isSelected) {
+      onSelect(slice.id, e);
+    }
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const parent = e.currentTarget.closest('.relative').getBoundingClientRect();
     
     setDragStart({
-      x: e.clientX - parent.left,
-      y: e.clientY - parent.top,
+      x: e.clientX,
+      y: e.clientY,
       sliceX: slice.x,
       sliceY: slice.y,
       sliceWidth: slice.width,
-      sliceHeight: slice.height
+      sliceHeight: slice.height,
+      parentLeft: parent.left,
+      parentTop: parent.top
     });
     
     if (action === 'drag') {
@@ -33,14 +48,13 @@ const SelectionBox = ({ slice, onUpdate, onDelete, snapToGrid, imageDimensions }
       setIsResizing(true);
       setResizeHandle(handle);
     }
-  }, [slice]);
+  }, [slice, isSelected, onSelect]);
 
-  const handleMouseMove = useCallback((e) => {
+  const handleGlobalMouseMove = useCallback((e) => {
     if (!dragStart) return;
     
-    const parent = e.currentTarget.closest('.absolute').parentElement.getBoundingClientRect();
-    const currentX = e.clientX - parent.left;
-    const currentY = e.clientY - parent.top;
+    const currentX = e.clientX;
+    const currentY = e.clientY;
     
     if (isDragging) {
       const deltaX = currentX - dragStart.x;
@@ -100,6 +114,8 @@ const SelectionBox = ({ slice, onUpdate, onDelete, snapToGrid, imageDimensions }
         case 'e':
           newWidth = snapToGrid(dragStart.sliceWidth + deltaX);
           break;
+        default:
+          break;
       }
       
       // Ensure minimum size and bounds
@@ -112,31 +128,38 @@ const SelectionBox = ({ slice, onUpdate, onDelete, snapToGrid, imageDimensions }
     }
   }, [isDragging, isResizing, dragStart, slice, snapToGrid, imageDimensions, onUpdate, resizeHandle]);
 
-  const handleMouseUp = useCallback(() => {
+  const handleGlobalMouseUp = useCallback(() => {
     setIsDragging(false);
     setIsResizing(false);
     setDragStart(null);
     setResizeHandle(null);
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (isDragging || isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('mousemove', handleGlobalMouseMove);
+      document.addEventListener('mouseup', handleGlobalMouseUp);
     }
     
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleGlobalMouseMove);
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
+  }, [isDragging, isResizing, handleGlobalMouseMove, handleGlobalMouseUp]);
 
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
-      className="absolute border-2 border-primary-500 bg-primary-100 bg-opacity-20 group"
+      onClick={(e) => onSelect(slice.id, e)}
+      className={`
+        absolute border-2 group
+        ${isSelected 
+          ? 'border-primary-500 bg-primary-100 bg-opacity-30 z-10' 
+          : 'border-primary-400 bg-primary-50 bg-opacity-20'
+        }
+      `}
       style={{
         left: slice.x,
         top: slice.y,
@@ -157,20 +180,32 @@ const SelectionBox = ({ slice, onUpdate, onDelete, snapToGrid, imageDimensions }
       
       {/* Delete Button */}
       <button
-        onClick={() => onDelete(slice.id)}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(slice.id);
+        }}
         className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
       >
         <SafeIcon icon={FiX} className="text-xs" />
       </button>
+      
+      {/* Slice Info - Only show when selected */}
+      {isSelected && (
+        <div className="absolute -bottom-8 left-0 right-0 bg-primary-600 text-white text-xs py-1 px-2 rounded">
+          {slice.width}×{slice.height}
+        </div>
+      )}
       
       {/* Resize Handles */}
       {['nw', 'ne', 'sw', 'se', 'n', 's', 'w', 'e'].map(handle => (
         <div
           key={handle}
           className={`
-            absolute w-2 h-2 bg-primary-600 border border-white opacity-0 group-hover:opacity-100 transition-opacity
-            ${handle.includes('n') ? '-top-1' : handle.includes('s') ? '-bottom-1' : 'top-1/2 -translate-y-1/2'}
-            ${handle.includes('w') ? '-left-1' : handle.includes('e') ? '-right-1' : 'left-1/2 -translate-x-1/2'}
+            absolute w-3 h-3 bg-white border-2 border-primary-500 
+            ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} 
+            transition-opacity
+            ${handle.includes('n') ? '-top-1.5' : handle.includes('s') ? '-bottom-1.5' : 'top-1/2 -translate-y-1/2'}
+            ${handle.includes('w') ? '-left-1.5' : handle.includes('e') ? '-right-1.5' : 'left-1/2 -translate-x-1/2'}
             ${handle === 'nw' || handle === 'se' ? 'cursor-nw-resize' : 
               handle === 'ne' || handle === 'sw' ? 'cursor-ne-resize' :
               handle === 'n' || handle === 's' ? 'cursor-n-resize' : 'cursor-w-resize'}

@@ -4,6 +4,7 @@ import FileUpload from './components/FileUpload';
 import ImageEditor from './components/ImageEditor';
 import SliceResults from './components/SliceResults';
 import Header from './components/Header';
+import { isGif, sliceGif, processRegularImage } from './utils/gifUtils';
 
 function App() {
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -43,10 +44,7 @@ function App() {
     setIsProcessing(true);
     
     try {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
       const img = new Image();
-      
       await new Promise((resolve, reject) => {
         img.onload = resolve;
         img.onerror = reject;
@@ -54,40 +52,67 @@ function App() {
       });
 
       const results = [];
+      const isGifFile = isGif(uploadedFile);
       
+      // Process each slice
       for (let i = 0; i < slices.length; i++) {
         const slice = slices[i];
-        const scaleX = img.naturalWidth / slice.imageWidth;
-        const scaleY = img.naturalHeight / slice.imageHeight;
+        let sliceData;
         
-        const actualX = slice.x * scaleX;
-        const actualY = slice.y * scaleY;
-        const actualWidth = slice.width * scaleX;
-        const actualHeight = slice.height * scaleY;
+        // Handle GIF slicing if needed
+        if (isGifFile && (slice.outputFormat === 'gif' || slice.outputFormat === 'original')) {
+          try {
+            console.log('Processing GIF slice:', i + 1);
+            
+            // Use special GIF processing for animation preservation
+            const gifResult = await sliceGif(imageUrl, {
+              ...slice,
+              x: slice.x,
+              y: slice.y,
+              width: slice.width,
+              height: slice.height,
+              imageWidth: slice.imageWidth,
+              imageHeight: slice.imageHeight,
+            });
+            
+            sliceData = {
+              id: i + 1,
+              name: `slice-${i + 1}`,
+              dataUrl: gifResult.dataUrl, // For preview
+              downloadUrl: gifResult.animatedGifUrl, // For download
+              width: gifResult.width,
+              height: gifResult.height,
+              isAnimated: true,
+              format: 'gif',
+              frames: gifResult.frames,
+              blob: gifResult.blob // The actual animated GIF blob
+            };
+            
+            console.log('GIF slice processed successfully:', sliceData);
+          } catch (error) {
+            console.error('Error processing GIF slice, falling back to static image:', error);
+            
+            // Fall back to regular image processing
+            const regularResult = await processRegularImage(imageUrl, slice, img, 'png');
+            sliceData = {
+              id: i + 1,
+              name: `slice-${i + 1}`,
+              ...regularResult
+            };
+          }
+        } else {
+          // Regular image processing (non-GIF or GIF converted to static)
+          const outputFormat = slice.outputFormat === 'original' ? 'png' : slice.outputFormat;
+          const regularResult = await processRegularImage(imageUrl, slice, img, outputFormat);
+          
+          sliceData = {
+            id: i + 1,
+            name: `slice-${i + 1}`,
+            ...regularResult
+          };
+        }
         
-        canvas.width = actualWidth;
-        canvas.height = actualHeight;
-        
-        ctx.drawImage(
-          img,
-          actualX,
-          actualY,
-          actualWidth,
-          actualHeight,
-          0,
-          0,
-          actualWidth,
-          actualHeight
-        );
-        
-        const sliceDataUrl = canvas.toDataURL(uploadedFile.type);
-        results.push({
-          id: i + 1,
-          name: `slice-${i + 1}`,
-          dataUrl: sliceDataUrl,
-          width: actualWidth,
-          height: actualHeight
-        });
+        results.push(sliceData);
       }
       
       setGeneratedSlices(results);
